@@ -62,14 +62,38 @@ void ble_evt_write(ble_evt_t const* p_ble_evt) {
 
 void print_state(states current_state){
 	switch(current_state){
-	case OFF: {
-		display_write("OFF", DISPLAY_LINE_0);
-		break;
-  }
+    	case OFF: {
+    		display_write("OFF", DISPLAY_LINE_0);
+    		break;
+      }
+      case NAV: {
+    		display_write("NAV", DISPLAY_LINE_0);
+    		break;
+      }
+      case TURN_90: {
+    		display_write("TURN_90", DISPLAY_LINE_0);
+    		break;
+      }
+      case TRAVERSE: {
+    		display_write("TRAVERSE", DISPLAY_LINE_0);
+    		break;
+      }
+      case DRIVE_STEP: {
+    		display_write("DRIVE_STEP", DISPLAY_LINE_0);
+    		break;
+      }
+      case DRIVE: {
+    		display_write("DRIVE", DISPLAY_LINE_0);
+    		break;
+      }
+      case TURN: {
+    		display_write("TURN", DISPLAY_LINE_0);
+    		break;
+      }
     }
 }
 
-const float SIDE_LEN = 0.33; // Length of a tile in meters
+const float SIDE_LEN = 0.32; // Length of a tile in meters
 
 /* Stores the x and y positions as well as the angle of the robot */
 typedef struct position_tuple {
@@ -85,6 +109,7 @@ typedef struct dist_angle_tuple {
 } dist_angle;
 
 static float measure_distance(uint16_t current_encoder, uint16_t previous_encoder) {
+  // yo i hope this is in meters lol
   const float CONVERSION = 0.00065;
 
   float result = 0.0;
@@ -93,12 +118,22 @@ static float measure_distance(uint16_t current_encoder, uint16_t previous_encode
   } else {
     result = (float)current_encoder + (0xFFFF - (float)previous_encoder);
   }
-  return result = result * CONVERSION;
+  result = result * CONVERSION;
+  if (result > 0.20) {
+      // filter out unrealistic distance traveled
+      return 0;
+  }
+  return result;
 }
 
 position get_position() {
   // TODO: use ble to get position
-  return NULL;
+  // currently returns one stupid position
+  position from;
+  from.x = .16;
+  from.y = .48;
+  from.theta = 1.57;
+  return from;
 }
 
 float get_measurement() {
@@ -134,9 +169,10 @@ position find_center(position *p) {
 /* Return the distance and turn angle needed to reach the center of position TO from position FROM. */
 dist_angle navigate(position *from, position *to) {
   dist_angle result;
-  result.distance = sqrt(pow(from->x - to->x, 2) + pow(from->y - to->y, 2));
-  float target_angle_from_vert = atan2(to->y - from->y, to->x - from->x);
-  result.angle = target_angle_from_vert - from->angle;
+  result.dist = sqrt(pow(from->x - to->x, 2) + pow(from->y - to->y, 2));
+  //float target_angle_from_vert = atan2(to->y - from->y, to->x - from->x);
+  float target_angle_from_vert = atan2(to->x - from->x, from->y - to->y);
+  result.turn_angle = target_angle_from_vert - from->theta;
   return result;
 }
 
@@ -147,7 +183,7 @@ struct max_power_position {
   float measurement;
 }
 
-const int grid_size = 3; //Number of tiles in a row on the grid.
+const int grid_size = 2; //Number of tiles in a row on the grid.
 
 uint16_t previous_encoder;
 uint16_t current_encoder;
@@ -248,7 +284,7 @@ int main(void) {
       case TRAVERSE: {
         print_state(state);
         cur_measurement = get_measurement();
-        cur_position = get_position();
+        //cur_position = get_position();
         if (cur_measurement > mpp.measurement) {
           mpp.measurement = cur_measurement;
           mpp.p = cur_position;
@@ -258,7 +294,7 @@ int main(void) {
           state = OFF;
         }
 
-        else if (step_counter == grid_size*grid_size - 1) {
+        else if (step_counter == grid_size*grid_size - 1) { //finished traversing
           state = NAV;
           kobukiDriveDirect(0, 0);
         } else if ((step_counter + 1) % grid_size == 0) { // Detects when we reach the end of a row
@@ -278,7 +314,7 @@ int main(void) {
       case DRIVE_STEP: {
         print_state(state);
         cur_measurement = get_measurement();
-        cur_position = get_position();
+        //cur_position = get_position();
         if (cur_measurement > mpp.measurement) {
           mpp.measurement = cur_measurement;
           mpp.p = cur_position;
@@ -336,7 +372,7 @@ int main(void) {
         break;
       }
 
-      case NAV: {
+      case NAV: { // navigate to the best position
         if (is_button_pressed(&sensors)) {
           state = OFF;
           break;
@@ -399,4 +435,3 @@ int main(void) {
     }
   }
 }
-
