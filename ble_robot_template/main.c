@@ -236,7 +236,7 @@ position find_center(position *p) {
 //   return result;
 // }
 
-/* Return the distance and turn angle needed to reach the center of position TO from position FROM. */
+/* Return the distance and turn angle needed to reach the position TO from position FROM. */
 dist_angle navigate(position *from, position *to) {
   // printf("from x %f\n", from->x);
   // printf("from y %f\n", from->y);
@@ -250,6 +250,10 @@ dist_angle navigate(position *from, position *to) {
   float target_angle_from_vert = atan2(to->x - from->x, from->y - to->y) * 180 / M_PI;
   result.turn_angle = target_angle_from_vert - from->theta;
   return result;
+}
+
+float get_angle() {
+  return get_position().theta;
 }
 
 const int WINDOW_SIZE = 10;
@@ -304,6 +308,8 @@ float cur_measurement;
 position cur_position;
 bool switch_directions;
 dist_angle directions;
+float target_angle = 0;
+const float THRESHOLD = 1.0; // How far off our angle can be for the robot to stop turning
 
 
 int main(void) {
@@ -423,6 +429,14 @@ int main(void) {
           turn_right = !turn_right;
           switch_directions = true;
           lsm9ds1_start_gyro_integration();
+          float target_angle;
+          if (turn_right) {
+            target_angle = get_angle() + 90.0;
+            target_angle = target_angle > 360.0 ? target_angle - 360.0 : target_angle;
+          } else {
+            target_angle = get_angle() - 90.0;
+            target_angle = target_angle < 0.0 ? target_angle + 360.0 : target_angle;
+          }
           state = TURN_90;
         } else {
           distance = 0;
@@ -472,7 +486,7 @@ int main(void) {
           state = OFF;
           lsm9ds1_stop_gyro_integration();
           break;
-        } else if (fabs(degrees) >= 90) {
+        } else if (fabs(target_angle - get_angle()) <= THRESHOLD) {
           if (switch_directions) {
             state = DRIVE_STEP;
             distance = 0;
@@ -486,10 +500,10 @@ int main(void) {
             degrees = 0;
             kobukiDriveDirect(0, 0);
           }
-        } else if (turn_right) {
+        } else if (target_angle - get_angle() > 0) { // Turn right
           kobukiDriveDirect(50,-50);
           state = TURN_90;
-        } else {
+        } else { // Turn left
           kobukiDriveDirect(-50,50);
           state = TURN_90;
         }
