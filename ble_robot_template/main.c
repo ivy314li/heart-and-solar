@@ -31,6 +31,10 @@
 
 // I2C manager
 NRF_TWI_MNGR_DEF(twi_mngr_instance, 5, 0);
+int x_pos_readable = 0;
+int y_pos_readable = 0;
+int angle_readable = 0;
+bool ble_connected = false;
 
 // global variables
 KobukiSensors_t sensors = {0};
@@ -46,18 +50,53 @@ static simple_ble_config_t ble_config = {
         .max_conn_interval = MSEC_TO_UNITS(200, UNIT_1_25_MS),
 };
 
-//4607eda0-f65e-4d59-a9ff-84420d87a4ca
-static simple_ble_service_t robot_service = {{
-    .uuid128 = {0xca,0xa4,0x87,0x0d,0x42,0x84,0xff,0xA9,
+// service
+static simple_ble_service_t angle_service = {{
+    .uuid128 = {0xca,0xc4,0x87,0x0d,0x42,0x84,0xff,0xA9,
                 0x59,0x4D,0x5e,0xf6,0xa0,0xed,0x07,0x46}
 }};
 
-// TODO: Declare characteristics and variables for your service
+// characteristics
+static simple_ble_char_t x_pos_char = {.uuid16 = 0xa4ca};
+static int xpos = 32;
+static simple_ble_char_t y_pos_char = {.uuid16 = 0xb4cb};
+static int ypos = 8;
+static simple_ble_char_t angle_char = {.uuid16 = 0xc4cb};
+static int angle = -1;
+static simple_ble_char_t update_char = {.uuid16 = 0xd4cd};
+static bool updated = false; //has a new update been written by bluetooth?
 
+// main application state
 simple_ble_app_t* simple_ble_app;
 
 void ble_evt_write(ble_evt_t const* p_ble_evt) {
-    // TODO: logic for each characteristic and related state changes
+    // receive measurements
+    if (simple_ble_is_char_event(p_ble_evt, &update_char)) {
+      printf("position was updated\n");
+      display_write("got bluetooth update", DISPLAY_LINE_0);
+      if (updated) {
+        printf("updating variables...\n");
+        y_pos_readable = ypos;
+        x_pos_readable = xpos;
+        angle_readable = angle;
+        //index_readable = index;
+        // updated = false;
+      } else {
+        printf("no bluetooth update\n");
+      }
+    }
+}
+
+extern void ble_evt_connected(ble_evt_t const* p_ble_evt) {
+    display_write("BLE CONNECTED", DISPLAY_LINE_0);
+    ble_connected = true;
+    nrf_delay_ms(1000);
+}
+
+extern void ble_evt_disconnected(ble_evt_t const* p_ble_evt) {
+    display_write("BLE DISCONNECTED :(", DISPLAY_LINE_0);
+    ble_connected = false;
+    nrf_delay_ms(1000);
 }
 
 void print_state(states current_state){
@@ -137,11 +176,34 @@ static float measure_distance(uint16_t current_encoder, uint16_t previous_encode
 position get_position() {
   // TODO: use ble to get position
   // currently returns one stupid position
-  position from;
-  from.x = .75;
-  from.y = .75;
-  from.theta = 1.57;
-  return from;
+
+  position curr = {0};
+  if (!ble_connected) {
+    return curr;
+  }
+  int timeout = 10;
+
+  int timer = 0;
+  while(!updated) {
+      nrf_delay_ms(1000);
+      timer += 1;
+      display_write("waiting 4 update...", DISPLAY_LINE_0);
+      if (timer >= timeout) {
+        return -1;
+      }
+  }
+
+  curr.x = (float) x_pos_readable;
+  curr.y = (float) y_pos_readable;
+  curr.theta = (float) angle_readable;
+  updated = false;
+  return curr
+
+  // position from;
+  // from.x = .75;
+  // from.y = .75;
+  // from.theta = 1.57;
+  // return from;
 }
 
 float get_measurement() {
@@ -224,10 +286,19 @@ int main(void) {
 
   // Setup BLE
   simple_ble_app = simple_ble_init(&ble_config);
-
-  simple_ble_add_service(&robot_service);
-
-  // TODO: Register your characteristics
+  simple_ble_add_service(&angle_service);
+  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
+      sizeof(angle), (uint8_t*)&angle,
+      &angle_service, &angle_char);
+  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
+      sizeof(xpos), (uint8_t*)&xpos,
+      &angle_service, &x_pos_char);
+  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
+      sizeof(ypos), (uint8_t*)&ypos,
+      &angle_service, &y_pos_char);
+  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
+      sizeof(updated), (uint8_t*)&updated,
+      &angle_service, &update_char);
 
   // Start Advertising
   simple_ble_adv_only_name();
