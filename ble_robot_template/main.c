@@ -150,8 +150,8 @@ position floor_position(position *p) {
 /* Given a position, find the center of the tile. P must be a floored position. */
 position find_center(position *p) {
   position center;
-  center.x = p->x + SIDE_LEN;
-  center.y = p->y + SIDE_LEN;
+  center.x = p->x + SIDE_LEN/2;
+  center.y = p->y + SIDE_LEN/2;
   center.theta = p->theta;
   return center;
 }
@@ -171,16 +171,47 @@ dist_angle navigate(position *from, position *to) {
   dist_angle result;
   result.dist = sqrt(pow(from->x - to->x, 2) + pow(from->y - to->y, 2));
   //float target_angle_from_vert = atan2(to->y - from->y, to->x - from->x);
-  float target_angle_from_vert = atan2(to->x - from->x, from->y - to->y);
+  float target_angle_from_vert = atan2(to->x - from->x, from->y - to->y) * 180 / M_PI;
   result.turn_angle = target_angle_from_vert - from->theta;
   return result;
 }
 
+const int WINDOW_SIZE = 10;
+float measurements[WINDOW_SIZE]; // The last WINDOW_SIZE measurements
+int write_index = 0;
 
-
+/* The position that produces the max power as well as its measurement. */
 struct max_power_position {
   position p;
   float measurement;
+};
+
+/* Return the average of the MEASUREMENTS buffer. */
+float get_averaged_measurement() {
+  float total = 0;
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    total += measurements[i];
+  }
+  return total/WINDOW_SIZE;
+}
+
+/* Write a measurement into the MEASUREMENTS buffer. Replace the oldest measurement. */
+void log_measurement(float m) {
+  measurements[write_index] = m;
+  write_index++;
+  if (write_index >= WINDOW_SIZE) {
+    write_index = 0;
+  }
+}
+
+/* Update the max power position MPP. */
+void update_mpp(struct max_power_position *mpp) {
+  cur_measurement = get_averaged_measurement();
+  cur_position = get_position();
+  if (cur_measurement > mpp->measurement) {
+    mpp->measurement = cur_measurement;
+    mpp->p = cur_position;
+  }
 }
 
 const int grid_size = 2; //Number of tiles in a row on the grid.
@@ -197,6 +228,7 @@ float cur_measurement;
 position cur_position;
 bool switch_directions;
 dist_angle directions;
+
 
 int main(void) {
   float distance = 0;
@@ -263,6 +295,7 @@ int main(void) {
     kobukiSensorPoll(&sensors);
     current_encoder = sensors.leftWheelEncoder;
     //int status = kobukiSensorPoll(&sensors);
+    log_measurement(get_measurement());
 
     // TODO: complete state machine
     switch(state) {
@@ -283,13 +316,7 @@ int main(void) {
       }
       case TRAVERSE: {
         print_state(state);
-        cur_measurement = get_measurement();
-        //cur_position = get_position();
-        if (cur_measurement > mpp.measurement) {
-          mpp.measurement = cur_measurement;
-          mpp.p = cur_position;
-        }
-
+        update_mpp(&mpp);
         if (is_button_pressed(&sensors)) {
           state = OFF;
         }
@@ -313,12 +340,7 @@ int main(void) {
       }
       case DRIVE_STEP: {
         print_state(state);
-        cur_measurement = get_measurement();
-        //cur_position = get_position();
-        if (cur_measurement > mpp.measurement) {
-          mpp.measurement = cur_measurement;
-          mpp.p = cur_position;
-        }
+        update_mpp(&mpp);
         if (is_button_pressed(&sensors)) {
           state = OFF;
         } else if (distance >= SIDE_LEN) {
@@ -432,6 +454,16 @@ int main(void) {
         }
         break;
       }
+
+      case TURN_CORRECT: {
+      //   print_state(state);
+      //   if (is_button_pressed(&sensors)) {
+      //     state = OFF;
+      //     break;
+      //   } else if () {
+
+      //   }
+      // }
     }
   }
 }
