@@ -36,7 +36,7 @@ NRF_TWI_MNGR_DEF(twi_mngr_instance, 5, 0);
 KobukiSensors_t sensors = {0};
 int x_pos_readable = 0;
 int y_pos_readable = 0;
-int index_readable = 0;
+//int index_readable = 0;
 int angle_readable = 0;
 bool ble_connected = false;
 
@@ -44,29 +44,31 @@ bool ble_connected = false;
 static simple_ble_config_t ble_config = {
         // c0:98:e5:49:xx:xx
         .platform_id       = 0x49,    // used as 4th octect in device BLE address
-        .device_id         = 0x0000, // TODO: replace with your lab bench number
+        .device_id         = 0x6969, //TODO: replace with your lab bench number
         .adv_name          = "HEARTSOLAR", // used in advertisements if there is room
         .adv_interval      = MSEC_TO_UNITS(1000, UNIT_0_625_MS),
         .min_conn_interval = MSEC_TO_UNITS(100, UNIT_1_25_MS),
         .max_conn_interval = MSEC_TO_UNITS(200, UNIT_1_25_MS),
 };
 
-//4607eda0-f65e-4d59-a9ff-84420d87a4ca
-static simple_ble_service_t my_service = {{
-    .uuid128 = {0xca,0xa4,0x87,0x0d,0x42,0x84,0xff,0xA9,
+//4607eda0-f65e-4d59-a9ff-84420d87c4ca
+
+static simple_ble_service_t angle_service = {{
+    .uuid128 = {0xca,0xc4,0x87,0x0d,0x42,0x84,0xff,0xA9,
                 0x59,0x4D,0x5e,0xf6,0xa0,0xed,0x07,0x46}
 }};
 
+
+
+
 // characteristics
-static simple_ble_char_t x_pos_char = {.uuid16 = 0xa4cb};
-static int xpos = 0;
-static simple_ble_char_t y_pos_char = {.uuid16 = 0xa4cc};
-static int ypos = 0;
-static simple_ble_char_t angle_char = {.uuid16 = 0xa4cd};
-static int angle = 0;
-static simple_ble_char_t index_char = {.uuid16 = 0xa4ce};
-static int index = 0;
-static simple_ble_char_t update_char = {.uuid16 = 0xa4cf};
+static simple_ble_char_t x_pos_char = {.uuid16 = 0xa4ca};
+static int xpos = 32;
+static simple_ble_char_t y_pos_char = {.uuid16 = 0xb4cb};
+static int ypos = 8;
+static simple_ble_char_t angle_char = {.uuid16 = 0xc4cb};
+static int angle = -1;
+static simple_ble_char_t update_char = {.uuid16 = 0xd4cd};
 static bool updated = false; //has a new update been written by bluetooth?
 // main application state
 simple_ble_app_t* simple_ble_app;
@@ -81,7 +83,7 @@ void ble_evt_write(ble_evt_t const* p_ble_evt) {
         y_pos_readable = ypos;
         x_pos_readable = xpos;
         angle_readable = angle;
-        index_readable = index;
+        //index_readable = index;
         // updated = false;
       } else {
         printf("bad bluetooth update\n");
@@ -95,17 +97,17 @@ extern void ble_evt_connected(ble_evt_t const* p_ble_evt) {
     nrf_delay_ms(1000);
 }
 
-extern void ble_evt_disconnected(ble_evt_t const* p_ble_evt {
+extern void ble_evt_disconnected(ble_evt_t const* p_ble_evt) {
     display_write("BLE DISCONNECTED :(", DISPLAY_LINE_0);
     ble_connected = false;
     nrf_delay_ms(1000);
 }
 
 void print_state(states current_state){
-	switch(current_state){
-	case OFF:
-		display_write("OFF", DISPLAY_LINE_0);
-		break;
+  switch(current_state){
+  case OFF:
+    display_write("OFF", DISPLAY_LINE_0);
+    break;
     }
 }
 
@@ -139,25 +141,28 @@ int main(void) {
 
   // Setup BLE
   simple_ble_app = simple_ble_init(&ble_config);
-
-  simple_ble_add_service(&my_service);
+ 
+  simple_ble_add_service(&angle_service);
 
   // TODO: Register your characteristics
-  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
-      sizeof(xpos), (uint8_t*)&xpos,
-      &my_service, &x_pos_char);
-  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
-      sizeof(ypos), (uint8_t*)&ypos,
-      &my_service, &y_pos_char);
+
   simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
       sizeof(angle), (uint8_t*)&angle,
-      &my_service, &angle_char);
+      &angle_service, &angle_char); 
+
   simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
-      sizeof(index), (uint8_t*)&index,
-      &my_service, &index_char);
+      sizeof(xpos), (uint8_t*)&xpos,
+      &angle_service, &x_pos_char);
+
+  simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
+      sizeof(ypos), (uint8_t*)&ypos,
+      &angle_service, &y_pos_char);
+
+
   simple_ble_add_characteristic(1, 1, 0, 0, // read, write, notify, vlen
       sizeof(updated), (uint8_t*)&updated,
-      &my_service, &update_char);
+      &angle_service, &update_char);
+  printf("Log initialized14!\n"); 
   // Start Advertising
   simple_ble_adv_only_name();
 
@@ -220,16 +225,17 @@ int main(void) {
         }
 
         // try to read bluetooth measurements
-        int *my_x, *my_y, *my_angle;
-        int succ = get_pos_angle(my_x, my_y, my_angle, 10);
+        int my_x =0 , my_y = 0, my_angle = 0;
+        int succ = get_pos_angle(&my_x, &my_y, &my_angle, 10);
         if (succ == 0) {
           display_write("read ble measurement", DISPLAY_LINE_0);
           char buf[16];
-          snprintf(buf, 16, "%f", my_x;
+          snprintf(buf, 16, "%x", my_x);
+          //printf("%d\n", my_x);
           display_write(buf, DISPLAY_LINE_1);
           nrf_delay_ms(1000);
         } else {
-          display_write("bad get :(", DISPLAY_LINE_1);
+          display_write("cannot read", DISPLAY_LINE_1);
           nrf_delay_ms(1000);
         }
 
