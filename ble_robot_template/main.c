@@ -61,39 +61,42 @@ void ble_evt_write(ble_evt_t const* p_ble_evt) {
 }
 
 void print_state(states current_state){
-	switch(current_state){
-    	case OFF: {
-    		display_write("OFF", DISPLAY_LINE_0);
-    		break;
+  switch(current_state){
+      case OFF: {
+        display_write("OFF", DISPLAY_LINE_0);
+        break;
       }
       case NAV: {
-    		display_write("NAV", DISPLAY_LINE_0);
-    		break;
+        display_write("NAV", DISPLAY_LINE_0);
+        //nrf_delay_ms(1000);
+        break;
       }
       case TURN_90: {
-    		display_write("TURN_90", DISPLAY_LINE_0);
-    		break;
+        display_write("TURN_90", DISPLAY_LINE_0);
+        break;
       }
       case TRAVERSE: {
-    		display_write("TRAVERSE", DISPLAY_LINE_0);
-    		break;
+
+        display_write("TRAVERSE", DISPLAY_LINE_0);
+        //nrf_delay_ms(1000); this will literally breka everything do not uncomment
+        break;
       }
       case DRIVE_STEP: {
-    		display_write("DRIVE_STEP", DISPLAY_LINE_0);
-    		break;
+        display_write("DRIVE_STEP", DISPLAY_LINE_0);
+        break;
       }
       case DRIVE: {
-    		display_write("DRIVE", DISPLAY_LINE_0);
-    		break;
+        display_write("DRIVE", DISPLAY_LINE_0);
+        break;
       }
       case TURN: {
-    		display_write("TURN", DISPLAY_LINE_0);
-    		break;
+        display_write("TURN", DISPLAY_LINE_0);
+        break;
       }
     }
 }
 
-const float SIDE_LEN = 0.32; // Length of a tile in meters
+const float SIDE_LEN = 0.30; // Length of a tile in meters
 
 /* Stores the x and y positions as well as the angle of the robot */
 typedef struct position_tuple {
@@ -119,10 +122,15 @@ static float measure_distance(uint16_t current_encoder, uint16_t previous_encode
     result = (float)current_encoder + (0xFFFF - (float)previous_encoder);
   }
   result = result * CONVERSION;
-  if (result > 0.20) {
+  if (result > 0.10) {
+      display_write("NOPE", DISPLAY_LINE_1);
       // filter out unrealistic distance traveled
-      return 0;
+      return 0.0;
   }
+  char buf[16];
+  snprintf(buf, 16, "%d", result);
+  display_write(buf, DISPLAY_LINE_1);
+  //display_write("NOPE", DISPLAY_LINE_1);
   return result;
 }
 
@@ -130,8 +138,8 @@ position get_position() {
   // TODO: use ble to get position
   // currently returns one stupid position
   position from;
-  from.x = .16;
-  from.y = .48;
+  from.x = .75;
+  from.y = .75;
   from.theta = 1.57;
   return from;
 }
@@ -168,6 +176,12 @@ position find_center(position *p) {
 
 /* Return the distance and turn angle needed to reach the center of position TO from position FROM. */
 dist_angle navigate(position *from, position *to) {
+  // printf("from x %f\n", from->x);
+  // printf("from y %f\n", from->y);
+  // printf("from angle %f\n", from->theta);
+  // printf("to x %f\n", to->x);
+  // printf("ot y %f\n", to->y);
+  // printf("from angle %f\n", to->theta);
   dist_angle result;
   result.dist = sqrt(pow(from->x - to->x, 2) + pow(from->y - to->y, 2));
   //float target_angle_from_vert = atan2(to->y - from->y, to->x - from->x);
@@ -181,9 +195,9 @@ dist_angle navigate(position *from, position *to) {
 struct max_power_position {
   position p;
   float measurement;
-}
+};
 
-const int grid_size = 2; //Number of tiles in a row on the grid.
+const int grid_size = 3; //Number of tiles in a row on the grid.
 
 uint16_t previous_encoder;
 uint16_t current_encoder;
@@ -264,6 +278,14 @@ int main(void) {
     current_encoder = sensors.leftWheelEncoder;
     //int status = kobukiSensorPoll(&sensors);
 
+    //set initial mpp values
+    position impos;
+    impos.x = .15;
+    impos.y = .15;
+    impos.theta = 1.57;
+    mpp.p = impos;
+    mpp.measurement = 1.0;
+
     // TODO: complete state machine
     switch(state) {
       case OFF: {
@@ -271,6 +293,7 @@ int main(void) {
 
         // transition logic
         if (is_button_pressed(&sensors)) {
+        //if (true) { //kms
           //state = NEWSTATE;
           state = TRAVERSE;
           previous_encoder = sensors.leftWheelEncoder;
@@ -323,6 +346,7 @@ int main(void) {
           state = OFF;
         } else if (distance >= SIDE_LEN) {
           if (switch_directions) {
+            step_counter++;
             state = TURN_90;
             degrees = 0;
             switch_directions = false;
@@ -339,12 +363,18 @@ int main(void) {
           previous_encoder = current_encoder;
           kobukiDriveDirect(75,75);
           state = DRIVE_STEP;
+          char buf[16];
+          snprintf(buf, 16, "%d", step_counter);
+          display_write(buf, DISPLAY_LINE_1);
         }
         break;
       }
       case TURN_90: {
         print_state(state);
         degrees = (lsm9ds1_read_gyro_integration()).z_axis;
+        char buf[16];
+        snprintf(buf, 16, "%f", degrees);
+        display_write(buf, DISPLAY_LINE_1);
         if (is_button_pressed(&sensors)) {
           state = OFF;
           lsm9ds1_stop_gyro_integration();
@@ -360,6 +390,7 @@ int main(void) {
             state = TRAVERSE;
             previous_encoder = sensors.leftWheelEncoder;
             lsm9ds1_stop_gyro_integration();
+            degrees = 0;
             kobukiDriveDirect(0, 0);
           }
         } else if (turn_right) {
@@ -373,38 +404,49 @@ int main(void) {
       }
 
       case NAV: { // navigate to the best position
+        print_state(state);
+        printf("nav state\n");
         if (is_button_pressed(&sensors)) {
           state = OFF;
           break;
         }
         cur_position = get_position();
+        //printf("nav state1\n");
         directions = navigate(&cur_position, &mpp.p);
+        //printf("nav state2\n");
         if (directions.turn_angle < 0) {
           turn_right = false;
         } else {
           turn_right = true;
         }
         turn_angle = directions.turn_angle;
+        //printf("nav state3\n");
         degrees = 0;
         lsm9ds1_start_gyro_integration();
+        //printf("nav state4\n");
         state = TURN;
         break;
       }
 
       case TURN: {
         print_state(state);
+        char buf[16];
+        snprintf(buf, 16, "%f", turn_angle);
+        display_write(buf, DISPLAY_LINE_1);
         degrees = (lsm9ds1_read_gyro_integration()).z_axis;
         if (is_button_pressed(&sensors)) {
           state = OFF;
           lsm9ds1_stop_gyro_integration();
           break;
-        } else if (fabs(degrees) >= turn_angle) {
+        } else if (fabs(degrees) >= fabs(turn_angle*180/3.14)) { //fabs(turn_angle*180/3.14)
           state = DRIVE;
           previous_encoder = sensors.leftWheelEncoder;
-          distance = 0;
+          distance = 0.0;
           drive_distance = directions.dist;
           lsm9ds1_stop_gyro_integration();
           kobukiDriveDirect(75, 75);
+          nrf_delay_ms(100);
+          //break;
         } else if (turn_right) {
           kobukiDriveDirect(50,-50);
           state = TURN;
@@ -424,11 +466,21 @@ int main(void) {
           kobukiDriveDirect(0, 0);
           state = OFF;
         } else {
+
+
           current_encoder = sensors.leftWheelEncoder;
+          printf("%d\n", current_encoder);
+          printf("%d\n\n", previous_encoder);
           distance += measure_distance(current_encoder, previous_encoder);
           previous_encoder = current_encoder;
           kobukiDriveDirect(75,75);
           state = DRIVE;
+
+          char buf[16];
+          snprintf(buf, 16, "%f", distance);
+          nrf_delay_ms(500);
+
+          //display_write(buf, DISPLAY_LINE_1);
         }
         break;
       }
