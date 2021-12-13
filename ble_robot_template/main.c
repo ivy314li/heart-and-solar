@@ -309,7 +309,10 @@ position cur_position;
 bool switch_directions;
 dist_angle directions;
 float target_angle = 0;
-const float THRESHOLD = 1.0; // How far off our angle can be for the robot to stop turning
+float target_distance = 0;
+const float ANGLE_THRESHOLD = 1.0; // How far off our angle can be for the robot to stop turning. Measured in degrees. 
+const float DIST_THRESHOLD = 0.1;
+float target_angle = 0.0;
 
 
 int main(void) {
@@ -425,11 +428,8 @@ int main(void) {
           state = NAV;
           kobukiDriveDirect(0, 0);
         } else if ((step_counter + 1) % grid_size == 0) { // Detects when we reach the end of a row
-          degrees = 0;
           turn_right = !turn_right;
           switch_directions = true;
-          lsm9ds1_start_gyro_integration();
-          float target_angle;
           if (turn_right) {
             target_angle = get_angle() + 90.0;
             target_angle = target_angle > 360.0 ? target_angle - 360.0 : target_angle;
@@ -449,26 +449,37 @@ int main(void) {
       case DRIVE_STEP: {
         print_state(state);
         update_mpp(&mpp);
+        current_encoder = sensors.leftWheelEncoder;
+        distance += measure_distance(current_encoder, previous_encoder);
+        previous_encoder = current_encoder;
         if (is_button_pressed(&sensors)) {
           state = OFF;
-        } else if (distance >= SIDE_LEN) {
+        } else if (fabs(target_distance - distance) <= DIST_THRESHOLD) {
           if (switch_directions) {
             step_counter++;
             state = TURN_90;
-            degrees = 0;
             switch_directions = false;
-            lsm9ds1_start_gyro_integration();
+            if (turn_right) {
+              target_angle = get_angle() + 90.0;
+              target_angle = target_angle > 360.0 ? target_angle - 360.0 : target_angle;
+            } else {
+              target_angle = get_angle() - 90.0;
+              target_angle = target_angle < 0.0 ? target_angle + 360.0 : target_angle;
+            }
           } else {
             step_counter++;
             previous_encoder = sensors.leftWheelEncoder;
             kobukiDriveDirect(0, 0);
             state = TRAVERSE;
           }
-        } else {
-          current_encoder = sensors.leftWheelEncoder;
-          distance += measure_distance(current_encoder, previous_encoder);
-          previous_encoder = current_encoder;
+        } else if (target_distance - distance > 0) {
           kobukiDriveDirect(75,75);
+          state = DRIVE_STEP;
+          char buf[16];
+          snprintf(buf, 16, "%d", step_counter);
+          display_write(buf, DISPLAY_LINE_1);
+        } else { // Reverse if we overshot
+          kobukiDriveDirect(-75,-75);
           state = DRIVE_STEP;
           char buf[16];
           snprintf(buf, 16, "%d", step_counter);
@@ -478,26 +489,21 @@ int main(void) {
       }
       case TURN_90: {
         print_state(state);
-        degrees = (lsm9ds1_read_gyro_integration()).z_axis;
         char buf[16];
         snprintf(buf, 16, "%f", degrees);
         display_write(buf, DISPLAY_LINE_1);
         if (is_button_pressed(&sensors)) {
           state = OFF;
-          lsm9ds1_stop_gyro_integration();
           break;
-        } else if (fabs(target_angle - get_angle()) <= THRESHOLD) {
+        } else if (fabs(target_angle - get_angle()) <= ANGLE_THRESHOLD) {
           if (switch_directions) {
             state = DRIVE_STEP;
             distance = 0;
             previous_encoder = sensors.leftWheelEncoder;
-            lsm9ds1_stop_gyro_integration();
             kobukiDriveDirect(75, 75);
           } else {
             state = TRAVERSE;
             previous_encoder = sensors.leftWheelEncoder;
-            lsm9ds1_stop_gyro_integration();
-            degrees = 0;
             kobukiDriveDirect(0, 0);
           }
         } else if (target_angle - get_angle() > 0) { // Turn right
@@ -545,7 +551,7 @@ int main(void) {
           state = OFF;
           lsm9ds1_stop_gyro_integration();
           break;
-        } else if (fabs(degrees) >= fabs(turn_angle*180/3.14)) { //fabs(turn_angle*180/3.14)
+        } else if (fabs(degrees) >= fabs(turn_angle)) { //fabs(turn_angle*180/3.14)
           state = DRIVE;
           previous_encoder = sensors.leftWheelEncoder;
           distance = 0.0;
@@ -592,7 +598,7 @@ int main(void) {
         break;
       }
 
-      case TURN_CORRECT: {
+      // case TURN_CORRECT: {
       //   print_state(state);
       //   if (is_button_pressed(&sensors)) {
       //     state = OFF;
