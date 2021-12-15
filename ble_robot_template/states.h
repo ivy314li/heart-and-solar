@@ -17,8 +17,7 @@ typedef enum {
     DRIVE_STEP=3,
     TRAVERSE=4,
     TURN=5,
-    DRIVE=6,
-    TURN_CORRECT=7
+    DRIVE=6
 
 } states;
 

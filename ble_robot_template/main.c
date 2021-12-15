@@ -43,8 +43,8 @@ KobukiSensors_t sensors = {0};
 static simple_ble_config_t ble_config = {
         // c0:98:e5:49:xx:xx
         .platform_id       = 0x49,    // used as 4th octect in device BLE address
-        .device_id         = 0x0000, // TODO: replace with your lab bench number
-        .adv_name          = "KOBUKI", // used in advertisements if there is room
+        .device_id         = 0x6969, // TODO: replace with your lab bench number
+        .adv_name          = "HEARTSOLAR", // used in advertisements if there is room
         .adv_interval      = MSEC_TO_UNITS(1000, UNIT_0_625_MS),
         .min_conn_interval = MSEC_TO_UNITS(100, UNIT_1_25_MS),
         .max_conn_interval = MSEC_TO_UNITS(200, UNIT_1_25_MS),
@@ -71,33 +71,37 @@ simple_ble_app_t* simple_ble_app;
 
 void ble_evt_write(ble_evt_t const* p_ble_evt) {
     // receive measurements
-    if (simple_ble_is_char_event(p_ble_evt, &update_char)) {
-      printf("position was updated\n");
-      display_write("got bluetooth update", DISPLAY_LINE_0);
-      if (updated) {
-        printf("updating variables...\n");
-        y_pos_readable = ypos;
-        x_pos_readable = xpos;
-        angle_readable = angle;
-        //index_readable = index;
-        // updated = false;
-      } else {
-        printf("no bluetooth update\n");
-      }
-    }
+    // if (simple_ble_is_char_event(p_ble_evt, &update_char)) {
+    //   printf("position was updated\n");
+    //   display_write("got bluetooth update", DISPLAY_LINE_0);
+    //   if (updated) {
+    //     printf("updating variables...\n");
+    //     y_pos_readable = ypos;
+    //     x_pos_readable = xpos;
+    //     angle_readable = angle;
+    //     //index_readable = index;
+    //     // updated = false;
+    //   } else {
+    //     printf("no bluetooth update\n");
+    //   }
+    // }
+    y_pos_readable = ypos;
+    x_pos_readable = xpos;
+    angle_readable = angle;
+    updated = true;
 }
 
-extern void ble_evt_connected(ble_evt_t const* p_ble_evt) {
-    display_write("BLE CONNECTED", DISPLAY_LINE_0);
-    ble_connected = true;
-    nrf_delay_ms(1000);
-}
+// extern void ble_evt_connected(ble_evt_t const* p_ble_evt) {
+//     display_write("BLE CONNECTED", DISPLAY_LINE_0);
+//     ble_connected = true;
+//     nrf_delay_ms(1000);
+// }
 
-extern void ble_evt_disconnected(ble_evt_t const* p_ble_evt) {
-    display_write("BLE DISCONNECTED :(", DISPLAY_LINE_0);
-    ble_connected = false;
-    nrf_delay_ms(1000);
-}
+// extern void ble_evt_disconnected(ble_evt_t const* p_ble_evt) {
+//     display_write("BLE DISCONNECTED :(", DISPLAY_LINE_0);
+//     ble_connected = false;
+//     nrf_delay_ms(1000);
+// }
 
 void print_state(states current_state){
   switch(current_state){
@@ -173,31 +177,32 @@ static float measure_distance(uint16_t current_encoder, uint16_t previous_encode
   return result;
 }
 
-position get_position() {
+static position get_position() {
   // TODO: use ble to get position
   // currently returns one stupid position
 
-  position curr = {0};
-  if (!ble_connected) {
-    return curr;
-  }
-  int timeout = 10;
+  position curr = {0,0,0};
+  // if (!ble_connected) {
+  //   return curr;
+  // }
+  int timeout = 3;
 
   int timer = 0;
-  while(!updated) {
-      nrf_delay_ms(1000);
-      timer += 1;
-      display_write("waiting 4 update...", DISPLAY_LINE_0);
-      if (timer >= timeout) {
-        return -1;
-      }
-  }
+  // while(!updated) {
+  //     nrf_delay_ms(1000);
+  //     printf("reached\n");
+  //     timer += 1;
+  //     display_write("waiting 4 update...", DISPLAY_LINE_1);
+  //     if (timer >= timeout) {
+  //       return curr;
+  //     }
+  // }
 
-  curr.x = (float) x_pos_readable;
-  curr.y = (float) y_pos_readable;
+  curr.x = (float) x_pos_readable / 100;
+  curr.y = (float) y_pos_readable /100;
   curr.theta = (float) angle_readable;
   updated = false;
-  return curr
+  return curr;
 
   // position from;
   // from.x = .75;
@@ -253,7 +258,7 @@ dist_angle navigate(position *from, position *to) {
 }
 
 const int WINDOW_SIZE = 10;
-float measurements[WINDOW_SIZE]; // The last WINDOW_SIZE measurements
+float measurements[10]; // The last WINDOW_SIZE measurements
 int write_index = 0;
 
 /* The position that produces the max power as well as its measurement. */
@@ -282,12 +287,12 @@ void log_measurement(float m) {
 
 /* Update the max power position MPP. */
 void update_mpp(struct max_power_position *mpp) {
-  cur_measurement = get_averaged_measurement();
-  cur_position = get_position();
-  if (cur_measurement > mpp->measurement) {
-    mpp->measurement = cur_measurement;
-    mpp->p = cur_position;
-  }
+  float cur_measurement = 0.0; //get_averaged_measurement();
+  position cur_position = get_position();
+  // if (cur_measurement > mpp->measurement) {
+  //   mpp->measurement = cur_measurement;
+  //   mpp->p = cur_position;
+  // }
 }
 
 const int grid_size = 3; //Number of tiles in a row on the grid.
@@ -297,18 +302,23 @@ uint16_t current_encoder;
 float degrees = 0;
 float turn_angle = 0;
 float drive_distance = 0;
-static struct max_power_position mpp;
 int step_counter = 0; // The number of steps the robot has taken while traversing.
 bool turn_right = false; // Whether the robot should turn right or left while traversing the grid.
-float cur_measurement;
-position cur_position;
 bool switch_directions;
 dist_angle directions;
 
 
 int main(void) {
+  struct max_power_position mpp;
   float distance = 0;
   ret_code_t error_code = NRF_SUCCESS;
+  position impos;
+  impos.x = 0.5;
+  impos.y = 0.75;
+  impos.theta = 0;
+  mpp.p = impos;
+  mpp.measurement = 0.0;
+  int timer;
 
   // initialize RTT library
   error_code = NRF_LOG_INIT(NULL);
@@ -383,17 +393,11 @@ int main(void) {
     log_measurement(get_measurement());
 
     //set initial mpp values
-    position impos;
-    impos.x = .15;
-    impos.y = .15;
-    impos.theta = 1.57;
-    mpp.p = impos;
-    mpp.measurement = 1.0;
-
+    //nrf_delay_ms(1);
     // TODO: complete state machine
     switch(state) {
       case OFF: {
-        print_state(state);
+        //print_state(state);
 
         // transition logic
         if (is_button_pressed(&sensors)) {
@@ -410,6 +414,15 @@ int main(void) {
       }
       case TRAVERSE: {
         print_state(state);
+        //nrf_delay_ms(2000);
+        printf("traverse state\n");
+        //position c = get_position();
+       	timer = 0;
+        while (timer < 20) {
+        	nrf_delay_ms(100);
+        	kobukiSensorPoll(&sensors);
+        	timer++;
+        }
         update_mpp(&mpp);
         if (is_button_pressed(&sensors)) {
           state = OFF;
@@ -434,7 +447,7 @@ int main(void) {
       }
       case DRIVE_STEP: {
         print_state(state);
-        update_mpp(&mpp);
+        //update_mpp(&mpp);
         if (is_button_pressed(&sensors)) {
           state = OFF;
         } else if (distance >= SIDE_LEN) {
@@ -454,10 +467,10 @@ int main(void) {
           current_encoder = sensors.leftWheelEncoder;
           distance += measure_distance(current_encoder, previous_encoder);
           previous_encoder = current_encoder;
-          kobukiDriveDirect(75,75);
+          kobukiDriveDirect(85,84);
           state = DRIVE_STEP;
           char buf[16];
-          snprintf(buf, 16, "%d", step_counter);
+          snprintf(buf, 16, "%f", distance);
           display_write(buf, DISPLAY_LINE_1);
         }
         break;
@@ -487,10 +500,10 @@ int main(void) {
             kobukiDriveDirect(0, 0);
           }
         } else if (turn_right) {
-          kobukiDriveDirect(50,-50);
+          kobukiDriveDirect(46,-50);
           state = TURN_90;
         } else {
-          kobukiDriveDirect(-50,50);
+          kobukiDriveDirect(-50,46);
           state = TURN_90;
         }
         break;
@@ -499,25 +512,42 @@ int main(void) {
       case NAV: { // navigate to the best position
         print_state(state);
         printf("nav state\n");
+  
         if (is_button_pressed(&sensors)) {
           state = OFF;
-          break;
         }
-        cur_position = get_position();
-        //printf("nav state1\n");
-        directions = navigate(&cur_position, &mpp.p);
-        //printf("nav state2\n");
-        if (directions.turn_angle < 0) {
-          turn_right = false;
-        } else {
-          turn_right = true;
+        else {
+        	timer = 0;
+        	while (timer < 40) {
+        		nrf_delay_ms(100);
+        		kobukiSensorPoll(&sensors);
+        		n++;
+        	}
+
+        	position cur_position = get_position();
+	        char buf[16];
+	        snprintf(buf, 16, "%f", cur_position.x);
+	        display_write(buf, DISPLAY_LINE_0);
+	        snprintf(buf, 16, "Angle: %f", cur_position.theta);
+			display_write(buf, DISPLAY_LINE_1);
+			// state = OFF;
+	  //       break;
+	        //printf("nav state1\n");
+	        directions = navigate(&cur_position, &mpp.p);
+	        //printf("nav state2\n");
+	        if (directions.turn_angle < 0) {
+	          turn_right = false;
+	        } else {
+	          turn_right = true;
+	        }
+	        turn_angle = directions.turn_angle;
+	        //printf("nav state3\n");
+	        degrees = 0;
+	        lsm9ds1_start_gyro_integration();
+	        //printf("nav state4\n");
+	        state = TURN;
         }
-        turn_angle = directions.turn_angle;
-        //printf("nav state3\n");
-        degrees = 0;
-        lsm9ds1_start_gyro_integration();
-        //printf("nav state4\n");
-        state = TURN;
+        //nrf_delay_ms(2000);
         break;
       }
 
@@ -531,20 +561,20 @@ int main(void) {
           state = OFF;
           lsm9ds1_stop_gyro_integration();
           break;
-        } else if (fabs(degrees) >= fabs(turn_angle*180/3.14)) { //fabs(turn_angle*180/3.14)
+        } else if (fabs(degrees) >= fabs(turn_angle)) { //fabs(turn_angle*180/3.14)
           state = DRIVE;
           previous_encoder = sensors.leftWheelEncoder;
           distance = 0.0;
           drive_distance = directions.dist;
           lsm9ds1_stop_gyro_integration();
           kobukiDriveDirect(75, 75);
-          nrf_delay_ms(100);
+          //nrf_delay_ms(100);
           //break;
         } else if (turn_right) {
-          kobukiDriveDirect(50,-50);
+          kobukiDriveDirect(46,-50);
           state = TURN;
         } else {
-          kobukiDriveDirect(-50,50);
+          kobukiDriveDirect(-50,46);
           state = TURN;
         }
         break;
@@ -571,22 +601,12 @@ int main(void) {
 
           char buf[16];
           snprintf(buf, 16, "%f", distance);
-          nrf_delay_ms(500);
+          display_write(buf, DISPLAY_LINE_1);
 
           //display_write(buf, DISPLAY_LINE_1);
         }
         break;
       }
-
-      case TURN_CORRECT: {
-      //   print_state(state);
-      //   if (is_button_pressed(&sensors)) {
-      //     state = OFF;
-      //     break;
-      //   } else if () {
-
-      //   }
-      // }
-    }
   }
+}
 }
