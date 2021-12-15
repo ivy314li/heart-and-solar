@@ -145,6 +145,7 @@ void print_state(states current_state){
 }
 
 const float SIDE_LEN = 0.30; // Length of a tile in meters
+const uint8_t POWER_CHANNEL = 0;
 
 /* Stores the x and y positions as well as the angle of the robot */
 typedef struct position_tuple {
@@ -216,11 +217,33 @@ static position get_position() {
   // return from;
 }
 
+// callback for SAADC events
+void saadc_callback (nrfx_saadc_evt_t const * p_event) {
+  // don't care about adc callbacks
+}
+
+// sample a particular analog channel in blocking mode
+nrf_saadc_value_t sample_value (uint8_t channel) {
+  nrf_saadc_value_t val;
+  ret_code_t error_code = nrfx_saadc_sample_convert(channel, &val);
+  APP_ERROR_CHECK(error_code);
+  return val;
+}
+
+float adc_to_voltage(nrf_saadc_value_t adc_code) {
+  return (float) adc_code * 3.6/4096;
+}
+
+float voltage_to_power(float voltage) {
+  // TODO: finish this
+  return 0.0;
+}
+
 float fake_measurements[] = {0.5, 1.2, 3.3, 0.1, 0.6, 2.3, 1.1, 1.2, 0.4, 5.2};
 int k = 0;
 float get_measurement() {
-  // TODO: get measurement from light sensor or solar converter
-  return fake_measurements[k++];
+  return adc_to_volage(sample_value(POWER_CHANNEL));
+  //return fake_measurements[k++];
 }
 
 /* Return a new position with the x and y coordinates of position P floored */
@@ -294,7 +317,7 @@ void log_measurement(float m) {
 
 /* Update the max power position MPP. */
 void update_mpp(struct max_power_position *mpp) {
-  float cur_measurement = get_measurement(); //TODO: CHANGE THIS
+  float cur_measurement = get_averaged_measurement();
   position cur_position = get_position();
   if (cur_measurement > mpp->measurement) {
     mpp->measurement = cur_measurement;
@@ -313,29 +336,7 @@ int step_counter = 0; // The number of steps the robot has taken while traversin
 bool turn_right = false; // Whether the robot should turn right or left while traversing the grid.
 bool switch_directions;
 dist_angle directions;
-const uint8_t POWER_CHANNEL = 0;
 
-// callback for SAADC events
-void saadc_callback (nrfx_saadc_evt_t const * p_event) {
-  // don't care about adc callbacks
-}
-
-// sample a particular analog channel in blocking mode
-nrf_saadc_value_t sample_value (uint8_t channel) {
-  nrf_saadc_value_t val;
-  ret_code_t error_code = nrfx_saadc_sample_convert(channel, &val);
-  APP_ERROR_CHECK(error_code);
-  return val;
-}
-
-float adc_to_voltage(nrf_saadc_value_t adc_code) {
-  return (float) adc_code * 3.6/4096;
-}
-
-float voltage_to_power(float voltage) {
-  // TODO: finish this
-  return 0.0;
-}
 
 int main(void) {
   ret_code_t error_code = NRF_SUCCESS;
@@ -436,14 +437,19 @@ int main(void) {
   printf("Kobuki initialized!\n");
 
   states state = OFF;
-
+  while (1) {
+    float v = adc_to_voltage(sample_value(POWER_CHANNEL));
+    char buf[16];
+    snprintf(buf, 16, "%f", v);
+    display_write(buf, DISPLAY_LINE_0);
+  }
   // loop forever, running state machine
   while (1) {
     // read sensors from robot
     kobukiSensorPoll(&sensors);
     current_encoder = sensors.leftWheelEncoder;
     //int status = kobukiSensorPoll(&sensors);
-    //log_measurement(get_measurement()); TODO: UNCOMMENT THIS
+    log_measurement(get_measurement());
 
     //set initial mpp values
     //nrf_delay_ms(1);
