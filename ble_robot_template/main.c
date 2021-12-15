@@ -29,6 +29,11 @@
 
 #include "states.h"
 
+#include "nrf_serial.h"
+#include "nrfx_gpiote.h"
+#include "nrfx_saadc.h"
+#include "buckler.h"
+
 // I2C manager
 NRF_TWI_MNGR_DEF(twi_mngr_instance, 5, 0);
 int x_pos_readable = 0;
@@ -211,9 +216,11 @@ static position get_position() {
   // return from;
 }
 
+float fake_measurements[] = {0.5, 1.2, 3.3, 0.1, 0.6, 2.3, 1.1, 1.2, 0.4, 5.2};
+int k = 0;
 float get_measurement() {
   // TODO: get measurement from light sensor or solar converter
-  return 0.0;
+  return fake_measurements[k++];
 }
 
 /* Return a new position with the x and y coordinates of position P floored */
@@ -287,12 +294,12 @@ void log_measurement(float m) {
 
 /* Update the max power position MPP. */
 void update_mpp(struct max_power_position *mpp) {
-  float cur_measurement = 0.0; //get_averaged_measurement();
+  float cur_measurement = get_measurement(); //TODO: CHANGE THIS
   position cur_position = get_position();
-  // if (cur_measurement > mpp->measurement) {
-  //   mpp->measurement = cur_measurement;
-  //   mpp->p = cur_position;
-  // }
+  if (cur_measurement > mpp->measurement) {
+    mpp->measurement = cur_measurement;
+    mpp->p = cur_position;
+  }
 }
 
 const int grid_size = 3; //Number of tiles in a row on the grid.
@@ -306,18 +313,64 @@ int step_counter = 0; // The number of steps the robot has taken while traversin
 bool turn_right = false; // Whether the robot should turn right or left while traversing the grid.
 bool switch_directions;
 dist_angle directions;
+const uint8_t POWER_CHANNEL = 0;
 
+// callback for SAADC events
+void saadc_callback (nrfx_saadc_evt_t const * p_event) {
+  // don't care about adc callbacks
+}
+
+// sample a particular analog channel in blocking mode
+nrf_saadc_value_t sample_value (uint8_t channel) {
+  nrf_saadc_value_t val;
+  ret_code_t error_code = nrfx_saadc_sample_convert(channel, &val);
+  APP_ERROR_CHECK(error_code);
+  return val;
+}
+
+float adc_to_voltage(nrf_saadc_value_t adc_code) {
+  return (float) adc_code * 3.6/4096;
+}
+
+float voltage_to_power(float voltage) {
+  // TODO: finish this
+  return 0.0;
+}
 
 int main(void) {
+  ret_code_t error_code = NRF_SUCCESS;
+
+  // initialize RTT library
+  error_code = NRF_LOG_INIT(NULL);
+  APP_ERROR_CHECK(error_code);
+  NRF_LOG_DEFAULT_BACKENDS_INIT();
+
+  // initialize analog to digital converter
+  nrfx_saadc_config_t saadc_config = NRFX_SAADC_DEFAULT_CONFIG;
+  saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT;
+  error_code = nrfx_saadc_init(&saadc_config, saadc_callback);
+  APP_ERROR_CHECK(error_code);
+
+  // initialize analog inputs
+  // configure with 0 as input pin for now
+  nrf_saadc_channel_config_t channel_config = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(0);
+  channel_config.gain = NRF_SAADC_GAIN1_6; // input gain of 1/6 Volts/Volt, multiply incoming signal by (1/6)
+  channel_config.reference = NRF_SAADC_REFERENCE_INTERNAL; // 0.6 Volt reference, input after gain can be 0 to 0.6 Volts
+
+  // specify input pin and initialize that ADC channel
+  channel_config.pin_p = NRF_SAADC_INPUT_AIN2;
+  error_code = nrfx_saadc_channel_init(POWER_CHANNEL, &channel_config);
+  APP_ERROR_CHECK(error_code);
+
   struct max_power_position mpp;
   float distance = 0;
-  ret_code_t error_code = NRF_SUCCESS;
-  position impos;
-  impos.x = 0.5;
-  impos.y = 0.75;
-  impos.theta = 0;
-  mpp.p = impos;
-  mpp.measurement = 0.0;
+  error_code = NRF_SUCCESS;
+  // position impos;
+  // impos.x = 0.5;
+  // impos.y = 0.75;
+  // impos.theta = 0;
+  // mpp.p = impos;
+  // mpp.measurement = 0.0;
   int timer;
 
   // initialize RTT library
@@ -390,7 +443,7 @@ int main(void) {
     kobukiSensorPoll(&sensors);
     current_encoder = sensors.leftWheelEncoder;
     //int status = kobukiSensorPoll(&sensors);
-    log_measurement(get_measurement());
+    //log_measurement(get_measurement()); TODO: UNCOMMENT THIS
 
     //set initial mpp values
     //nrf_delay_ms(1);
@@ -521,7 +574,7 @@ int main(void) {
         	while (timer < 40) {
         		nrf_delay_ms(100);
         		kobukiSensorPoll(&sensors);
-        		n++;
+        		timer++;
         	}
 
         	position cur_position = get_position();
