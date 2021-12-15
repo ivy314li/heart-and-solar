@@ -437,12 +437,12 @@ int main(void) {
   printf("Kobuki initialized!\n");
 
   states state = OFF;
-  while (1) {
-    float v = adc_to_voltage(sample_value(POWER_CHANNEL));
-    char buf[16];
-    snprintf(buf, 16, "%f", v);
-    display_write(buf, DISPLAY_LINE_0);
-  }
+  // while (1) {
+  //   float v = adc_to_voltage(sample_value(POWER_CHANNEL));
+  //   char buf[16];
+  //   snprintf(buf, 16, "%f", v);
+  //   display_write(buf, DISPLAY_LINE_0);
+  // }
   // loop forever, running state machine
   while (1) {
     // read sensors from robot
