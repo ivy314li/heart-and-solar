@@ -373,6 +373,9 @@ int main(void) {
   // mpp.p = impos;
   // mpp.measurement = 0.0;
   int timer;
+  for (int i = 0; i < WINDOW_SIZE; i++) {
+    measurements[i] = 0;
+  }
 
   // initialize RTT library
   error_code = NRF_LOG_INIT(NULL);
