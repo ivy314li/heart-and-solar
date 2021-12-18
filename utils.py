@@ -7,6 +7,21 @@ import argparse
 import sys
 import imutils
 import math
+import time
+import sys
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import statistics
+
+
+""" certain functions were sourced from the following online resources
+ https://medium.com/vacatronics/3-ways-to-calibrate-your-camera-using-opencv-and-python-395528a51615
+ https://stackoverflow.com/questions/55816902/finding-the-intersection-of-two-circles
+ https://github.com/GSNCodes/ArUCo-Markers-Pose-Estimation-Generation-Python/blob/main/pose_estimation.py 
+"""
+
+
 
 def save_coefficients(mtx, dist, path):
     '''Save the camera matrix and the distortion coefficients to given path/file.'''
@@ -82,16 +97,36 @@ def get_intersections(x0, y0, r0, x1, y1, r1):
         
         return [x3, y3], [x4, y4]
     
-def diff_y_angle(rvec_list):
-    
-    
+def diff_y_angle(rvec_list):    
     og_angle = 0
-    for i in range(4):
-        og_angle += rvec_list[i][1]
-    og_angle = og_angle/4
+    try:
+        for i in range(4):
+            counts += 1
+            og_angle += rvec_list[i][1]
+    except:
+        og_angle = 0
     
     diff = 180* (rvec_list[4][1]-og_angle)/math.pi
-    return diff
+    return -1 * diff
+
+def y_angle(rvec):
+    rotation_matrix, _ = cv2.Rodrigues(rvec)
+    def rotationMatrixToEulerAngles(R) :
+        sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
+        singular = sy < 1e-6
+        if not singular :
+            x = math.atan2(R[2,1] , R[2,2])
+            y = math.atan2(-R[2,0], sy)
+            z = math.atan2(R[1,0], R[0,0])
+        else :
+            x = math.atan2(-R[1,2], R[1,1])
+            y = math.atan2(-R[2,0], sy)
+            z = 0
+        return np.array([x, y, z])
+
+    euler = rotationMatrixToEulerAngles(rotation_matrix)
+    euler_degrees = [180*item/3.14159 for item in euler]
+    return euler_degrees[2]
 
 """
 Get width/length of robot room from markers
@@ -106,7 +141,7 @@ def get_width_length(tvec_list):
     c = np.linalg.norm(tvec_list[0] - tvec_list[2])
     d = np.linalg.norm(tvec_list[1] - tvec_list[3])
     length = (c+d)/2
-    return width, length
+    return width, length, a, b, c, d
 
 
 """
@@ -191,6 +226,82 @@ def clean_points_and_vote(width, length, box_size, possible_points):
         y_avg.append(y)
     return max_vote_index, sum(x_avg)/len(x_avg), sum(y_avg)/len(y_avg)
 
+
+
+def clean_points_and_vote1(width, length, box_size, possible_points):
+    block_width = width/box_size
+    block_length = length/box_size
+    possible_coords = [0]*box_size*box_size
+    max_votes = 0
+    max_vote_index = -1;
+    #x = math.floor(x/block_width)
+    #y = math.floor(y/block_length)
+    definite_points = []
+    sus_points = []
+    for pair in possible_points:
+        point1, point2 = pair
+        if point1[0] < 0 or point1[1] < 0:
+            definite_points.append(point2)
+            continue
+        if point2[0] < 0 or point2[1] < 0:
+            definite_points.append(point1)
+            continue
+        sus_points.append(pair)
+    print(definite_points)
+    for pair in sus_points:
+        print(pair)
+    print('start filter')
+    if len(definite_points) > 0:
+        # filter by distance
+        xavg = 0
+        yavg = 0
+        for point in definite_points:
+            xavg += point[0]
+            yavg += point[1]
+        xavg = xavg/len(definite_points)
+        yavg = yavg/len(definite_points)
+        avgpt = [xavg, yavg]
+        
+        for pair in sus_points:
+            dist0 = utils.find_distance(pair[0], avgpt)
+            dist1 = utils.find_distance(pair[1], avgpt)
+            if dist0 < dist1:
+                definite_points.append(pair[0])
+            else:
+                definite_points.append(pair[1])
+        
+        #final average
+        xavg = 0
+        yavg = 0
+        for point in definite_points:
+            xavg += point[0]
+            yavg += point[1]
+        xavg = xavg/len(definite_points)
+        yavg = yavg/len(definite_points)
+        print(definite_points)
+        return 0, xavg, yavg
+    else:
+         # otherwise just take all of them 
+        print('fuck')
+        return 0, 0 ,0
+
+def calculate_possible_points1(tvec_list, width, length):
+    #for every corner, find the intersection
+    corners =[(0, 0), (width, 0), (0, length), (width, length)]
+    possible_points = []
+    point_tvec = tvec_list[4]
+    for i in range(4):
+        for j in range(i+1, 4):
+            x0, y0 = corners[i]
+            r0 = np.linalg.norm(point_tvec-tvec_list[i])
+            x1, y1 = corners[j]
+            r1 = np.linalg.norm(point_tvec-tvec_list[j])
+            returned = utils.get_intersections(x0, y0, r0, x1, y1, r1)
+            if returned != None:
+                point1, point2 = returned
+                possible_points.append([point1, point2])
+    return possible_points
+
 def pose_estimation(frame, aruco_dict_type, matrix_coefficients, distortion_coefficients):
 
     '''
@@ -238,7 +349,100 @@ def pose_estimation(frame, aruco_dict_type, matrix_coefficients, distortion_coef
             rvecs.append(entry)
             entry = [ids[i][0], tvec[0][0]]
             tvecs.append(entry)
-
-        
-    
     return frame, rvecs, tvecs
+
+def calculate_possible_points1(tvec_list, width, length):
+    #for every corner, find the intersection
+    corners =[(0, 0), (width, 0), (0, length), (width, length)]
+    possible_points = []
+    point_tvec = tvec_list[4]
+    for i in range(4):
+        for j in range(i+1, 4):
+            x0, y0 = corners[i]
+            r0 = np.linalg.norm(point_tvec-tvec_list[i])
+            x1, y1 = corners[j]
+            r1 = np.linalg.norm(point_tvec-tvec_list[j])
+            returned = utils.get_intersections(x0, y0, r0, x1, y1, r1)
+            if returned != None:
+                point1, point2 = returned
+                possible_points.append([point1, point2])
+    return possible_points
+
+def clean_points_and_vote1(width, length, box_size, possible_points):
+    block_width = width/box_size
+    block_length = length/box_size
+    possible_coords = [0]*box_size*box_size
+    max_votes = 0
+    max_vote_index = -1;
+    #x = math.floor(x/block_width)
+    #y = math.floor(y/block_length)
+    definite_points = []
+    sus_points = []
+    for pair in possible_points:
+        point1, point2 = pair
+        if point1[0] < 0 or point1[1] < 0:
+            definite_points.append(point2)
+            continue
+        if point2[0] < 0 or point2[1] < 0:
+            definite_points.append(point1)
+            continue
+        sus_points.append(pair)
+    print(definite_points)
+    for pair in sus_points:
+        print(pair)
+    print('start filter')
+    if len(definite_points) > 0:
+        # filter by distance
+        xavg = 0
+        yavg = 0
+        for point in definite_points:
+            xavg += point[0]
+            yavg += point[1]
+        xavg = xavg/len(definite_points)
+        yavg = yavg/len(definite_points)
+        avgpt = [xavg, yavg]
+        
+        for pair in sus_points:
+            dist0 = utils.find_distance(pair[0], avgpt)
+            dist1 = utils.find_distance(pair[1], avgpt)
+            if dist0 < dist1:
+                definite_points.append(pair[0])
+            else:
+                definite_points.append(pair[1])
+        
+        
+        #final average
+        xavg = 0
+        yavg = 0
+        for point in definite_points:
+            xavg += point[0]
+            yavg += point[1]
+        xavg = xavg/len(definite_points)
+        yavg = yavg/len(definite_points)
+        print(definite_points)
+        return 0, xavg, yavg
+    else:
+         # otherwise just take all of them 
+        print('fuck')
+        return 0, 0 ,0
+    
+def find_location(tags, distances):
+    A = []
+    b = []
+    for i in range(1, len(tags)):
+        #print(i)
+        A.append([2 * (tags[0][0] - tags[i][0]), 2 * (tags[0][1] - tags[i][1])])
+        b.append(np.linalg.norm(tags[0]) ** 2 - np.linalg.norm(tags[i]) ** 2 - distances[0] ** 2 + distances[i] ** 2)
+    return np.linalg.lstsq(A, b)[0]
+    
+def calculate_location(tvec_list, width, length):
+    #for every corner, find the intersection
+    point_tvec = tvec_list[4]
+    corners =[(0, length), (width, length), (0, 0), (width, 0)]
+    distances = []
+    for i in range(len(corners)):
+        #print(i)
+        distance = np.linalg.norm(point_tvec-tvec_list[i])
+        #print(distance)
+        distances.append(distance)
+    return find_location(corners, distances)
