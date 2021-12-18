@@ -3,7 +3,7 @@ float current = 0;
 float power = 0;
 float power_max = 0;
 float pwm = 0;
-float pwm_max;
+float pwm_max_power;
 float delta = 0;
 float sensor_value1 = 0, sensor_value2 = 0;
 const float PWM_MIN = 20;
@@ -26,11 +26,11 @@ void loop() {
         if (power > power_max) {
             count = 0;
             power_max = power;
-            pwm_max = pwm;
+            pwm_max_power = pwm;
         } else {
             break;
         }
     }
-    analogWrite(6, pwm_max);
+    analogWrite(6, pwm_max_power);
     delay(SAMPLE_TIME);
 }
